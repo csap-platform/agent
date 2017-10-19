@@ -28,6 +28,11 @@ public class InitializeLogging {
 	public static File DEFINITION_WITH_PUBLISH = new File(
 		InitializeLogging.class.getResource( "/org/csap/test/data/application-publish-enabled.json" ).getPath() );
 	
+	public static File getTestDefinition(String path) {
+		return new File(
+			InitializeLogging.class.getResource( path ).getPath() );
+	}
+	
 
 	public static void printTestHeader ( String description ) {
 

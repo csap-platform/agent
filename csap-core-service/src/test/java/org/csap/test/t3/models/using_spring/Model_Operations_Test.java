@@ -809,9 +809,10 @@ public class Model_Operations_Test {
 	public void definition_with_new_package_creates_an_empty_one ()
 			throws Exception {
 
-		File csapApplicationDefinition = new File(
-			getClass().getResource( "/org/csap/test/data/application_with_new_package.json" ).getPath() );
+//		File csapApplicationDefinition = new File(
+//			getClass().getResource( "/org/csap/test/data/application_with_new_package.json" ).getPath() );
 
+		File csapApplicationDefinition = InitializeLogging.getTestDefinition( "data/application_with_new_package.json" ) ;
 		String message = InitializeLogging.TC_HEAD
 				+ "Applying a definition with a new package : \n" + csapApplicationDefinition;
 		logger.info( message );
@@ -843,8 +844,9 @@ public class Model_Operations_Test {
 		logger.info( "result:\n"
 				+ responseJsonNode.get( "result" ).asText() );
 
-		assertTrue( message,
-			responseJsonNode.get( "result" ).asText().indexOf( CSAP.CONFIG_PARSE_ERROR ) == -1 );
+		assertThat( responseJsonNode.get( "result" ).asText() )
+			.as( "Definition does not contain errors" )
+			.doesNotContain( CSAP.CONFIG_PARSE_ERROR );
 
 		File newPackageTemplatePath = new File( csapApp.getDefinitionFolder(),
 			"newReleaseFile.js" );

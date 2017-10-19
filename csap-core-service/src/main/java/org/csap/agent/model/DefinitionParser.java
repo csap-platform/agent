@@ -182,7 +182,7 @@ public class DefinitionParser {
 		// Loading resources has some corner cases, using spring to manage toURI
 		// location
 		File result = null;
-		ClassPathResource cp = new ClassPathResource( "/releasePackageTemplate.js" );
+		ClassPathResource cp = new ClassPathResource( "/releasePackageTemplate.json" );
 		try {
 			result = cp.getFile();
 		} catch (IOException e) {

@@ -791,7 +791,11 @@ public class Application {
 			STAGING = "target/junit/junit-" + now + "/staging";
 		}
 
-		updateApplicationVariables();
+		if ( springEnvironment != null ) {
+			// setting up for junits running in spring context
+			updateApplicationVariables();
+		}
+		//
 		logger.info( "\n\n =========  Unit Testing: {}, PROCESSING: {}, STAGING: {}",
 			definitionFile.getName(), PROCESSING, STAGING );
 
