@@ -19,9 +19,9 @@ Command Line parameters:
 Environment Variables:
 ```
 {
-	"hostUrlPattern": "http://CSAP_HOST.cisco.com:8011/CsAgent",
-	"mailServer": "outbound.cisco.com",
-	"csapDockerRepository": "containers.cisco.com/pnightin"
+	"hostUrlPattern": "http://CSAP_HOST.yourcompany.com:8011/CsAgent",
+	"mailServer": "outbound.yourcompany.com",
+	"csapDockerRepository": "containers.yourcompany.com/pnightin"
 }
 ```
 

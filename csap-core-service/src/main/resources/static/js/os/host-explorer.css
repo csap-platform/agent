@@ -107,7 +107,7 @@
 }
 
 div.dockerResults {
-	font-family: Lucida Console;
+	font-family: "Lucida Console",Monaco;
 	-moz-tab-size: 4;
 	tab-size: 4 ;
 	white-space: pre-wrap;

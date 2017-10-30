@@ -1,15 +1,8 @@
 package org.csap.agent.linux;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.AbstractMap;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -21,60 +14,52 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
-import javax.inject.Inject;
-
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.csap.agent.CSAP;
 import org.csap.agent.misc.CsapEventClient;
 import org.csap.agent.model.Application;
 import org.csap.agent.model.ServiceBaseParser;
 import org.csap.agent.model.ServiceInstance;
-import org.csap.agent.services.ServiceOsManager;
 import org.javasimon.SimonManager;
 import org.javasimon.Split;
 import org.javasimon.Stopwatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Helper thread to trigger log rolling on Service Instances.
- *
- * http://stackoverflow.com/questions/6965296/running-a-java-method-at-a-set-time-each-day
  * 
- * @author someDeveloper
+ * 
+ * Applications -> ReleasePackages -> Services -> Jobs
+ * 
+ * JobRunner looks for services on host with jobs scheduled at defined intervals.
+ * - jobs are pushed onto another thread pool so as to not block timer executions
+ * - max time jobs are allowed to run is controlled by service instance timeout
+ * - jobs can be invoked on demand from UI for jobs with and without scheduled invocation.
+ * 
+ * @author Peter Nightingale
  *
  */
 
 public class ServiceJobRunner {
 
-	private static final int MAX_JOBS_QUEUED = 60;
-
 	final private Logger logger = LoggerFactory.getLogger( getClass() );
-
-	public static final String SERVICE_JOB_ID = "service.jobs.";
-
-	BasicThreadFactory schedFactory = new BasicThreadFactory.Builder()
-
-		.namingPattern( "CsapLogRotation-%d" )
-		.daemon( true )
-		.priority( Thread.NORM_PRIORITY )
-		.build();
-	// limit Log Rolling to a single thread.
-	ScheduledExecutorService scheduledExecutorService = Executors
-		.newScheduledThreadPool( 1, schedFactory );
-
-	// Job Runs single thread
-	ExecutorService jobRunnerService;
-	volatile BlockingQueue<Runnable> jobRunnerQueue;
-
-	public int getBacklogCount () {
-		return jobRunnerQueue.size();
-	}
 
 	Application csapApplication;
 
+	// wakes up and checks for jobs that are scheduled to be run
+	private ScheduledExecutorService jobTimerService ;
+
+	// jobs invoked on separate thread pool
+	private ExecutorService jobRunnerService;
+	private static final int MAX_JOBS_QUEUED = 60;
+	private static final int MAX_JOBS_CONCURRENT = 2;
+	volatile BlockingQueue<Runnable> jobRunnerQueue;
+	public static final String SERVICE_JOB_ID = "service.jobs.";
+
+	
+	
 	public ServiceJobRunner( Application csapApplication ) {
 
 		this.csapApplication = csapApplication;
@@ -88,19 +73,34 @@ public class ServiceJobRunner {
 			logger.warn( "Setting DESKTOP to seconds" );
 			logRotationTimeUnit = TimeUnit.SECONDS;
 		}
+		
+		
 
 		logger.warn(
-			"Checking job schedule to be triggered every {} {}. Maximum jobs queued: {}",
-			interval, logRotationTimeUnit, MAX_JOBS_QUEUED );
+			"Creating job schedule thread, invoked: {} {}.",
+			interval, logRotationTimeUnit );
+		
+		BasicThreadFactory schedFactory = new BasicThreadFactory.Builder()
+				.namingPattern( "CsapLogRotation-%d" )
+				.daemon( true )
+				.priority( Thread.NORM_PRIORITY )
+				.build();
+		
+		jobTimerService = Executors
+				.newScheduledThreadPool( 1, schedFactory );
 
-		ScheduledFuture<?> jobHandle = scheduledExecutorService
+		ScheduledFuture<?> jobHandle = jobTimerService
 			.scheduleAtFixedRate(
 				() -> findAndRunActiveJobs(),
 				initialDelay,
 				interval,
 				logRotationTimeUnit );
 
-		// job runners
+
+		logger.warn(
+			"Creating job runner thread pool: {} threads.  Maximum jobs queued: {}",
+			MAX_JOBS_CONCURRENT, MAX_JOBS_QUEUED );
+		
 		BasicThreadFactory jobRunnerThreadFactory = new BasicThreadFactory.Builder()
 			.namingPattern( "CsapServiceJobRunner-%d" )
 			.daemon( true )
@@ -109,16 +109,14 @@ public class ServiceJobRunner {
 		//
 		jobRunnerQueue = new ArrayBlockingQueue<>( MAX_JOBS_QUEUED );
 
-		jobRunnerService = new ThreadPoolExecutor( 2, 2,
+		jobRunnerService = new ThreadPoolExecutor( 
+			MAX_JOBS_CONCURRENT, MAX_JOBS_CONCURRENT,
 			30, TimeUnit.SECONDS,
 			jobRunnerQueue,
 			jobRunnerThreadFactory );
 	}
 
-	// @Scheduled ( initialDelay = 10 * CSAP.ONE_SECOND_MS , fixedRate = 10 *
-	// CSAP.ONE_SECOND_MS )
-	// @Scheduled(initialDelay = 10 * CSAP.ONE_SECOND_MS, fixedRate = 60 *
-	// CSAP.ONE_SECOND_MS)
+	// @Scheduled(initialDelay = 10 * CSAP.ONE_SECOND_MS, fixedRate = 60 * CSAP.ONE_SECOND_MS)
 	public void findAndRunActiveJobs () {
 
 		Stopwatch allStopWatch = SimonManager.getStopwatch( SERVICE_JOB_ID + "all.script.checkForActive" );
@@ -146,7 +144,7 @@ public class ServiceJobRunner {
 
 		logger.warn( "Shutting down all jobs" );
 		try {
-			scheduledExecutorService.shutdown();
+			jobTimerService.shutdown();
 			jobRunnerService.shutdown();
 		} catch (Exception e) {
 			logger.error( "Shutting down error {}", CSAP.getCsapFilteredStackTrace( e ) );
@@ -179,6 +177,12 @@ public class ServiceJobRunner {
 
 	OsCommandRunner cleanOsCommandRunner = new OsCommandRunner( 60, 1, ServiceJobRunner.class.getName() );
 
+	
+	/**
+	 * 
+	 * Manually triggering a job from UI
+	 * 
+	 */
 	public String runJobUsingDescription ( ServiceInstance serviceInstance, String description ) {
 
 		String jobResult = "Did not find matching job: " + description;
@@ -200,6 +204,7 @@ public class ServiceJobRunner {
 
 		return jobResult;
 	}
+
 
 	private String runJob ( Map.Entry<ServiceBaseParser.ServiceJob, ServiceInstance> jobEntry ) {
 

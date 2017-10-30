@@ -5,11 +5,20 @@
  */
 package org.csap.agent.input.http.ui.rest;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.io.IOException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import org.apache.commons.io.FileUtils;
 import org.csap.agent.CSAP;
@@ -79,6 +88,29 @@ public class TrendCache {
 	}
 
 	private static final ClassPathResource trendStub = new ClassPathResource( "events/trendingReport.json" );
+	
+	private ObjectNode loadStubDataAndUpdateDateRange() throws Exception {
+		ObjectNode stubResponse = (ObjectNode) jacksonMapper.readTree( trendStub.getFile() );
+		
+		LocalDate today = LocalDate.now() ;
+		
+		List<String> pastDays= LongStream
+			.iterate(15, e -> e - 1)
+		    .limit(16)
+			.mapToObj( day ->  today.minusDays( day ) )
+			.map( offsetDate ->  offsetDate.format(DateTimeFormatter.ofPattern( "yyyy-MM-dd" ) ) )
+			.collect( Collectors.toList() );
+		
+		
+		((ObjectNode) stubResponse.get( "data" ).get( 0 ) )
+			.set("date", jacksonMapper.convertValue(
+				pastDays,
+				ArrayNode.class ) ) ;
+		
+		return stubResponse ;
+
+		
+	}
 
 	@CachePut ( key = KEY_IS_RESTURL )
 	public ObjectNode update ( String restUrl, String timerName )
@@ -87,10 +119,7 @@ public class TrendCache {
 		ObjectNode resultsJson = refreshRequiredResponse();
 
 		int reportHash = buildReportHash( restUrl );
-		// logger.info( "ReportHash: {}, url: {} ", reportHash, restUrl );
 
-		// logger.warn( "SLEEEPING ++++++++++++++ ");
-		// Thread.sleep(10000) ;
 		Split allTimer = SimonManager.getStopwatch( "trendCache.reload" ).start();
 		timerName = "trendCache.reload." + timerName.replaceAll( "/", "-" ).replaceAll( " ", "-" ).replaceAll( "=", "-" )
 			.replaceAll( "\\?", "." ).replaceAll( "&", "." );
@@ -102,10 +131,9 @@ public class TrendCache {
 			if ( !csapApp.lifeCycleSettings().isEventPublishEnabled() ) {
 				logger.info( "Stubbing out data for trends - add csap events services" );
 
-				restResponse = (ObjectNode) jacksonMapper.readTree( trendStub.getFile() );
-
+				restResponse = loadStubDataAndUpdateDateRange() ;
 				resultsJson.put( "message", "csap-event-service disabled - using stub data" );
-
+				
 			} else {
 				restResponse = trendRestTemplate.getForObject( restUrl, ObjectNode.class );
 			}

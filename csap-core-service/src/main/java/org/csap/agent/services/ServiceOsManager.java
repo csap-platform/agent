@@ -102,13 +102,12 @@ public class ServiceOsManager {
 	static public String KILL_FILE = "csap-kill.sh";
 	static public String REBUILD_FILE = "csap-deploy.sh";
 	static public String STOP_FILE = "csap-stop.sh";
-	
+
 	// deploy log file names
 	static public String START_OP = "_start";
 	static public String KILL_OP = "_kill";
 	static public String DEPLOY_OP = "_deploy";
-	
-	
+
 	static private String JOB_RUNNER = "csap-job-run.sh";
 
 	private static final String SCRIPT_PARAM_LIFECYCLE = "-l";
@@ -202,7 +201,6 @@ public class ServiceOsManager {
 		// " moded params " + params );
 		String result = "";
 
-
 		File workingDir = csapApp.getStagingFolder();
 		File scriptPath = new File( workingDir, "/bin/" + scriptName );
 
@@ -227,7 +225,7 @@ public class ServiceOsManager {
 
 		if ( commandArgumentsOverride != null
 				&& !commandArgumentsOverride.startsWith( "default" ) ) {
-			programParameters = commandArgumentsOverride ;
+			programParameters = commandArgumentsOverride;
 		}
 		if ( serviceInstance.isSpringBoot() && serviceInstance.isApacheWebIntegration() ) {
 			programParameters += " -Dserver.context-path=/" + serviceInstance.getContext();
@@ -398,24 +396,42 @@ public class ServiceOsManager {
 		return result;
 	}
 
-	private void addCsapModelEnvVariables ( ServiceInstance serviceInstance, Map<String, String> serviceEnvironmentVariables ) {
+	private void addCsapModelEnvVariables (
+											ServiceInstance serviceInstance,
+											Map<String, String> serviceEnvironmentVariables ) {
+
 		ObjectNode notifications = serviceInstance.getAttributeAsObject( ServiceAttributes.notifications );
-		
+
 		if ( notifications != null ) {
 			if ( notifications.has( "csapAddresses" ) ) {
-				serviceEnvironmentVariables.put( "csapAddresses", notifications.get( "csapAddresses" ).asText() );
-				if ( notifications.has( "csapFrequency" ) ) {
-					serviceEnvironmentVariables.put( "csapFrequency", notifications.get( "csapFrequency" ).asText() );
-				}
-				if ( notifications.has( "csapTimeUnit" ) ) {
-					serviceEnvironmentVariables.put( "csapTimeUnit", notifications.get( "csapTimeUnit" ).asText() );
-				}
-				if ( notifications.has( "csapMaxBacklog" ) ) {
-					serviceEnvironmentVariables.put( "csapMaxBacklog", notifications.get( "csapMaxBacklog" ).asText() );
+
+				String emailAddresses = notifications.get( "csapAddresses" ).asText();
+
+				if ( emailAddresses.contains( "someUser" ) ) {
+					
+					logger.warn( "Default 'someUser' found in emailAddress list, not enabling notifications: {}", emailAddresses );
+
+				} else {
+
+					serviceEnvironmentVariables.put( "csapAddresses", emailAddresses );
+					if ( notifications.has( "csapFrequency" ) ) {
+						serviceEnvironmentVariables.put( "csapFrequency", notifications.get( "csapFrequency" ).asText() );
+					}
+					if ( notifications.has( "csapTimeUnit" ) ) {
+						serviceEnvironmentVariables.put( "csapTimeUnit", notifications.get( "csapTimeUnit" ).asText() );
+					}
+					if ( notifications.has( "csapMaxBacklog" ) ) {
+						serviceEnvironmentVariables.put( "csapMaxBacklog", notifications.get( "csapMaxBacklog" ).asText() );
+					}
 				}
 			}
-		} else {
+		}
+
+		if ( !serviceEnvironmentVariables.containsKey( "csapAddresses" ) ) {
+			
+			logger.warn( "Notifications are disabled. Update Application.json as needed" );
 			serviceEnvironmentVariables.put( "csapAddresses", "disabled" );
+			
 		}
 
 		// Clustering infor
@@ -473,7 +489,7 @@ public class ServiceOsManager {
 		serviceEnvironmentVariables.put( "csapHttpPort", serviceInstance.getPort() );
 		serviceEnvironmentVariables.put( "csapJmxPort", serviceInstance.getJmxPort() );
 		serviceEnvironmentVariables.put( "csapServiceLife", serviceInstance.getLifecycle() );
-		
+
 		// add infra settings
 
 		serviceEnvironmentVariables.put( "hostUrlPattern", csapApp.getAgentHostUrlPattern( true ) );
@@ -484,9 +500,10 @@ public class ServiceOsManager {
 			serviceEnvironmentVariables.put( "mailPort", csapApp.getCompanyConfiguration( "spring.mail.port", "" ) );
 		}
 		if ( csapApp.isCompanyVariableConfigured( "my-service-configuration.docker.template-repository" ) ) {
-			serviceEnvironmentVariables.put( "csapDockerRepository", csapApp.getCompanyConfiguration( "my-service-configuration.docker.template-repository", "" ) );
+			serviceEnvironmentVariables.put( "csapDockerRepository",
+				csapApp.getCompanyConfiguration( "my-service-configuration.docker.template-repository", "" ) );
 		}
-		
+
 	}
 
 	private void configureServiceJob ( List<String> paramsInput, ServiceInstance serviceInstance, Map<String, String> envVarMap ) {
@@ -1511,10 +1528,10 @@ public class ServiceOsManager {
 
 	// only a single thread doing deploys else need synchronized
 	public boolean deployService (	ServiceInstance serviceInstance, String primaryHost, String deployId,
-								String requestedByUserid, String scmUserid, String scmPass,
-								String scmBranch,
-								String deploymentArtifact, String scmCommand, String targetScpHosts,
-								String hotDeploy, String javaOpts, String runtime, OutputFileMgr outputFileMgr )
+									String requestedByUserid, String scmUserid, String scmPass,
+									String scmBranch,
+									String deploymentArtifact, String scmCommand, String targetScpHosts,
+									String hotDeploy, String javaOpts, String runtime, OutputFileMgr outputFileMgr )
 			throws Exception {
 
 		logger.info( "{}  user: {} requested build: scmUserid: {} , scmBranch {}, deploymentArtifact: {}, scmCommand: {}, "
@@ -1836,50 +1853,53 @@ public class ServiceOsManager {
 			// complete. Bin contains
 			// command line scripts and must only be done
 			// when no other activity is occuring.
-//			if ( serviceInstance.getServiceName().equals( CS_AGENT ) ) {
-//				logger.warn( "STAGING/bin being Deployed to all VMs: " + hostList );
-//
-//				TransferManager stagingBinManager = new TransferManager( csapApp, 30, outputWriter );
-//				
-//				stagingBinManager.httpCopyViaCsAgent( 
-//					userid, 
-//					csapApp.getStagingFile( "/bin" ), 
-//					Application.FileToken.STAGING.value + "/bin", 
-//					hostList );
-//
-//				// blocking for response on a http thread. Generally - this
-//				// should
-//				// be less then a couple of minutes
-//				String transResults = stagingBinManager.waitForComplete();
-//
-//				logger.info( "CsAgent Binaries transfered" );
-//
-//				if ( transResults.contains( CSAP.CONFIG_PARSE_ERROR ) ) {
-//					logger.warn( "Found 1 or more errors in transfer results" );
-//					outputWriter.write( "\n ===== WARNING: one or more transfers of STAGING/bin failed =====\n" );
-//				} else {
-//					outputWriter.write( "\n ===== STAGING/bin updated: " + hostList + " =====\n" );
-//				}
-//				// outputWriter.write( transResults );
-//			}
+			// if ( serviceInstance.getServiceName().equals( CS_AGENT ) ) {
+			// logger.warn( "STAGING/bin being Deployed to all VMs: " + hostList
+			// );
+			//
+			// TransferManager stagingBinManager = new TransferManager( csapApp,
+			// 30, outputWriter );
+			//
+			// stagingBinManager.httpCopyViaCsAgent(
+			// userid,
+			// csapApp.getStagingFile( "/bin" ),
+			// Application.FileToken.STAGING.value + "/bin",
+			// hostList );
+			//
+			// // blocking for response on a http thread. Generally - this
+			// // should
+			// // be less then a couple of minutes
+			// String transResults = stagingBinManager.waitForComplete();
+			//
+			// logger.info( "CsAgent Binaries transfered" );
+			//
+			// if ( transResults.contains( CSAP.CONFIG_PARSE_ERROR ) ) {
+			// logger.warn( "Found 1 or more errors in transfer results" );
+			// outputWriter.write( "\n ===== WARNING: one or more transfers of
+			// STAGING/bin failed =====\n" );
+			// } else {
+			// outputWriter.write( "\n ===== STAGING/bin updated: " + hostList +
+			// " =====\n" );
+			// }
+			// // outputWriter.write( transResults );
+			// }
 		}
 
 		// Final step - send file to sync deploy complete
 		List<String> lines = Arrays.asList( "source: " + Application.getHOST_NAME() + " deploy passed" );
 		if ( !isBuildSuccessful ) {
-			lines =  Arrays.asList( "source: " + Application.getHOST_NAME() + " deploy failed" );
+			lines = Arrays.asList( "source: " + Application.getHOST_NAME() + " deploy failed" );
 		}
 		try {
 			Files.write( deployCompleteFile.toPath(), lines, Charset.forName( "UTF-8" ) );
 		} catch (IOException ex) {
 			logger.error( "Failed creating version file", ex );
 		}
-		
 
 		TransferManager deployCompleteManager = new TransferManager( csapApp, 30, null );
 		deployCompleteManager.httpCopyViaCsAgent( userid,
 			deployCompleteFile,
-			Application.CSAP_SAVED_TOKEN +  PACKAGE_SYNC, hostList );
+			Application.CSAP_SAVED_TOKEN + PACKAGE_SYNC, hostList );
 
 		String transResults = deployCompleteManager.waitForComplete();
 
@@ -1962,19 +1982,19 @@ public class ServiceOsManager {
 
 		File workingDir = csapApp.getStagingFolder();
 		File rebuildPath = new File( workingDir, "/bin/" + REBUILD_FILE );
-		
+
 		if ( !rebuildPath.exists() ) {
-			logger.warn( "did not find: {}. Ensure latest csap-package-linx is deployed. Switching names to legacy", 
+			logger.warn( "did not find: {}. Ensure latest csap-package-linx is deployed. Switching names to legacy",
 				rebuildPath.getAbsolutePath() );
 			REBUILD_FILE = "rebuildAndDeploySvc.sh";
 			KILL_FILE = "killInstance.sh";
 			START_FILE = "startInstance.sh";
 			JOB_RUNNER = "jobRunner.sh";
 		} else {
-			logger.info( "Found csap-package-linx : {}", 
+			logger.info( "Found csap-package-linx : {}",
 				rebuildPath.getAbsolutePath() );
 		}
-		
+
 		isInit = true;
 
 		if ( Application.isStatefulRestartNeeded() ) {

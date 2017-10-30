@@ -229,7 +229,8 @@
 				"osProcessesList": [
 					"linux",
 					"Java",
-					"mpstatMonitor"
+					"mpstatMonitor",
+					"CsapStarter"
 				],
 				"jvmPorts": {
 					"CsapTest": [
@@ -606,7 +607,7 @@
 			"version": {
 				"1": {}
 			},
-			"lastModifiedBy": "pnightin",
+			"lastModifiedBy": "someUser",
 			"environmentVariables": {
 				"demo": "none"
 			},
@@ -627,7 +628,7 @@
 			],
 			"useDockerJavaContainer": "false",
 			"docker": {
-				"image": "containers.cisco.com/pnightin/csap-tomcat-oracle:latest",
+				"image": "containers.yourcompany.com/someUser/csap-tomcat-oracle:latest",
 				"entryPoint": [
 					"/bin/sh",
 					"-c",
@@ -702,7 +703,7 @@
 			"environmentVariables": {
 				"csapExternalPropertyFolder": "$STAGING/conf/propertyOverride/shared"
 			},
-			"lastModifiedBy": "pnightin",
+			"lastModifiedBy": "someUser",
 			"customMetrics": {
 				"HostCpu": {
 					"mbean": "java.lang:type=OperatingSystem",
@@ -734,13 +735,13 @@
 				}
 			},
 			"notifications": {
-				"csapAddresses": "pnightin@cisco.com"
+				"csapAddresses": "someUser@yourcompany.com"
 			}
 		},
 		"CsapTest": {
 			"description": "csap-starter reference implementation",
-			"parameters": "-DcsapJava8  -Xms256M -Xmx256M -XX:MaxMetaspaceSize=96M -XX:+ExitOnOutOfMemoryError",
-			"lastModifiedBy": "pnightin",
+			"parameters": "-DcsapJava8  -Dspring.profiles.active=CSAP_LIFE,desktop,embedded -Xms256M -Xmx256M -XX:MaxMetaspaceSize=96M -XX:+ExitOnOutOfMemoryError",
+			"lastModifiedBy": "someUser",
 			"autoStart": "42",
 			"osProcessPriority": "0",
 			"server": "SpringBoot",
@@ -834,7 +835,7 @@
 				}
 			},
 			"files": [],
-			"launchUrl": "http://$host.cisco.com:$port/$context"
+			"launchUrl": "http://$host.yourcompany.com:$port/$context"
 		}
 	},
 	"osProcesses": {
@@ -862,10 +863,34 @@
 				"1": {}
 			},
 			"jmxPort": "-1",
-			"lastModifiedBy": "pnightin",
+			"lastModifiedBy": "someUser",
 			"disk": "sda1",
 			"monitors": {
 				"max_diskUtil": "6g"
+			}
+		},
+		"CsapStarter": {
+			"description": "Used to build the latest csap-starter",
+			"url": "https://github.com/csap-platform/csap-core/wiki",
+			"server": "wrapper",
+			"metaData": "isScript",
+			"logDirectory": "/home/ssadmin/staging/build",
+			"logRegEx": ".*\\.log",
+			"propDirectory": "/home/ssadmin/staging/build",
+			"maven": {
+				"dependency": "org.csap:csap-starter-simple:1.0.0:jar"
+			},
+			"environmentVariables": {
+				"javaBuildOnly": "true"
+			},
+			"source": {
+				"scm": "git",
+				"path": "https://github.com/csap-platform/csap-starter.git",
+				"branch": "HEAD",
+				"buildLocation": "/csap-starter"
+			},
+			"version": {
+				"1": {}
 			}
 		},
 		"docker": {
@@ -887,7 +912,7 @@
 				"1": {}
 			},
 			"processFilter": ".*dockerd.*",
-			"lastModifiedBy": "pnightin",
+			"lastModifiedBy": "someUser",
 			"disk": "/home/ssadmin/dockerStorage",
 			"logDirectory": "logs",
 			"defaultLogToShow": "var-log-messages",
@@ -913,8 +938,8 @@
 			}
 		},
 		"httpd": {
-			"lastModifiedBy": "pnightin",
-			"url": "http://$host.cisco.com:8011/CsAgent/service/httpd,http://$host.cisco.com:8011/CsAgent/service/modjk,http://$host.cisco.com:8080/about.html",
+			"lastModifiedBy": "someUser",
+			"url": "http://$host.yourcompany.com:8011/CsAgent/service/httpd,http://$host.yourcompany.com:8011/CsAgent/service/modjk,http://$host.yourcompany.com:8080/about.html",
 			"autoStart": "05",
 			"propDirectory": "/home/ssadmin/staging/httpdConf",
 			"deployTimeoutMinutes": "10",
@@ -953,7 +978,7 @@
 			"osProcessPriority": "-12",
 			"customMetrics": {
 				"config": {
-					"httpCollectionUrl": "http://localhost.cisco.com:8080/server-status?auto",
+					"httpCollectionUrl": "http://localhost.yourcompany.com:8080/server-status?auto",
 					"patternMatch": ": ([^\n]*)",
 					"title": "CSAP Collection Url"
 				},
@@ -988,7 +1013,7 @@
 					"title": "Requests: Number per Second"
 				}
 			},
-			"description": "pnightin added, and needs to update this description"
+			"description": "someUser added, and needs to update this description"
 		},
 		"Java": {
 			"description": "Oracle JDK 8",
@@ -1013,7 +1038,7 @@
 				"1": {}
 			},
 			"jmxPort": "-1",
-			"lastModifiedBy": "pnightin",
+			"lastModifiedBy": "someUser",
 			"autoStart": "02",
 			"processFilter": "NEVER_MATCH"
 		},
@@ -1041,7 +1066,7 @@
 				"1": {}
 			},
 			"jmxPort": "-1",
-			"lastModifiedBy": "pnightin",
+			"lastModifiedBy": "someUser",
 			"autoStart": "02",
 			"processFilter": "NEVER_MATCH",
 			"environmentVariables": {
@@ -1052,7 +1077,7 @@
 		"jstatd": {
 			"description": "Java Statistics",
 			"autoStart": "98",
-			"url": "https://wiki.cisco.com/display/SFAECSAP/CSAP+Java+Stats+Package",
+			"url": "https://wiki.yourcompany.com/display/SFAECSAP/CSAP+Java+Stats+Package",
 			"port": "7995",
 			"server": "wrapper",
 			"metaData": "skipJmxCollection",
@@ -1070,7 +1095,7 @@
 				"1": {}
 			},
 			"processFilter": ".*jstatd.*",
-			"lastModifiedBy": "pnightin"
+			"lastModifiedBy": "someUser"
 		},
 		"tomcat": {
 			"description": "Apache Tomcat Servers",
@@ -1078,7 +1103,7 @@
 			"environmentVariables": {
 				"extractAsNeeded": "false"
 			},
-			"lastModifiedBy": "pnightin",
+			"lastModifiedBy": "someUser",
 			"url": "https://github.com/csap-platform/csap-core/wiki",
 			"port": "0",
 			"server": "wrapper",

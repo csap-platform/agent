@@ -148,11 +148,11 @@ thead, tbody {
 .outputColumn {
 	width: 40em;
 	white-space: pre;
-	font-family: Lucida Console;
+	font-family: "Lucida Console",Monaco;
 }
 
 textarea {
-	font-family: Lucida Console;
+	font-family: "Lucida Console",Monaco;
 	font-size: 9pt;
 	white-space: pre;
 }

@@ -8,11 +8,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.DecimalFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import javax.annotation.PostConstruct;
@@ -360,4 +365,27 @@ public class SimpleTests {
 		logger.info( "list: {}", list );
 
 	}
+	
+	@Test
+	public void buildDateList() {
+		
+		LocalDate today = LocalDate.now() ;
+		logger.info( "now: {} ", today.format(DateTimeFormatter.ofPattern( "yyyy-MM-dd" )  ) );
+		
+		List<String> past10days= LongStream
+			.rangeClosed(1, 10)
+			.mapToObj( day ->  today.minusDays( day ) )
+			.map( offsetDate ->  offsetDate.format(DateTimeFormatter.ofPattern( "yyyy-MM-dd" ) ) )
+			.collect( Collectors.toList() );
+		
+		List<String> past10daysReverse = LongStream.iterate(10, e -> e - 1)
+	     	.limit(10)
+	     	.mapToObj( day ->  today.minusDays( day ) )
+			.map( offsetDate ->  offsetDate.format(DateTimeFormatter.ofPattern( "yyyy-MM-dd" ) ) )
+			.collect( Collectors.toList() );
+
+		logger.info( "past10days: {} \n reverse: {}", past10days, past10daysReverse );
+		
+	}
+	
 }

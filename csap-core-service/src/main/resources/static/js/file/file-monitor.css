@@ -136,7 +136,7 @@ label.radio {
 	line-height: 1.2em;
 	margin-left: 10px;
 	padding: 10px;
-	font-family: Lucida Console;
+	font-family: "Lucida Console",Monaco;
 	font-size: 9pt;
 	word-break: break-all;
 }
