@@ -52,57 +52,50 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  *
- * This is used only when jvm is started with -DmgrUi=mgrUi is specified.
+ * Context: Csap Application contains 1-n Hosts, with 1-M services, 
+ * 
+ * HostStatusManager Provides: 
+ *  - access to host and service status, via scheduled retrieval and on demand from UI or REST APIs
+ *  - rest api call to agents retrieve agent runtime data
+ *  - UI/API  calls can interrupt scheduled updates, and then reschedule
  *
- * It fronts all the agent instances, acting as an aggregating proxy for getting
- * os status, etc.
- *
- * This allows a single http request to front all agents on many hosts.
- *
- *
- * @see <a href=
- *      "http://static.springsource.org/spring/docs/3.2.0.RELEASE/spring-framework-reference/html/remoting.html#rest-resttemplate">
- *      Spring REST</a>
- *
- * @author someDeveloper
+ * @author Peter Nightingale
  *
  */
 public class HostStatusManager  {
 
 	final Logger logger = LoggerFactory.getLogger( HostStatusManager.class );
-
-	ObjectMapper jacksonMapper = new ObjectMapper();
-
-	BasicThreadFactory schedFactory = new BasicThreadFactory.Builder()
-		.namingPattern( "CsapHostJobsScheduler-%d" )
-		.daemon( true )
-		.priority( Thread.NORM_PRIORITY )
-		.build();
-
-	ScheduledExecutorService scheduleGetHostStatusJobs = Executors.newScheduledThreadPool( 1, schedFactory );
-
-	// ScheduledExecutorService scheduleGetHostStatusJobs = Executors
-	// .newScheduledThreadPool(1);
-	ScheduledFuture<?> refreshHostStatusHandle = null;
-
-	private int connectionTimeoutSeconds = 2;
-
-	boolean isTest = false;
-	private File testHostResponseFile;
+	Application csapApp = null;
+	private ObjectMapper jsonMapper = new ObjectMapper();
 
 	/**
-	 * For testing only
-	 *
-	 * @param testHostResponse
+	 * Agent Health collection Scheduling
 	 */
-	public HostStatusManager( File testHostResponseFile ) {
-		logger.warn( "\n ************** Running in Stub Mode *************** \n" );
-		this.isTest = true;
-		this.testHostResponseFile = testHostResponseFile;
-		// initRestTemplate( 1 );
-	}
+	private ScheduledExecutorService hostStatusScheduler ;
+	private ScheduledFuture<?> hostStatusSchedulerJob = null;
+	private ReentrantLock host_queries_in_progress_lock = new ReentrantLock();
+	
+	/**
+	 *  Agent Health collection threads
+	 */
+	private ExecutorService hostStatusWorkers;
+	private ExecutorCompletionService<AgentStatus> hostStatusService;
+	private CopyOnWriteArrayList<String> hostList;
+	private ConcurrentSkipListMap<String, ObjectNode> hostResponseMap = new ConcurrentSkipListMap<String, ObjectNode>();
+	
+	
+	/**
+	 *  Service Health Reporting
+	 */
+	private ConcurrentSkipListMap<String, String> lastCollectedServiceHeathReportTimes = new ConcurrentSkipListMap<String, String>();
+	private ArrayNode alertHistory = jsonMapper.createArrayNode();
+	private ArrayNode alertsThrottled = jsonMapper.createArrayNode();
+	private CsapSimpleCache alertThrottleTimer;  // convenience class for timer expiration
+	
+	
+	
+	private int connectionTimeoutSeconds = 2;
 
-	Application csapApp = null;
 
 	public HostStatusManager(
 			Application csapApplication,
@@ -110,10 +103,10 @@ public class HostStatusManager  {
 			ArrayList<String> hostsToQuery ) {
 
 		this.csapApp = csapApplication;
-
+		
 		csapApp.loadCacheFromDisk( getAlertHistory(), this.getClass().getSimpleName() );
 
-		throttleTimer = CsapSimpleCache.builder(
+		alertThrottleTimer = CsapSimpleCache.builder(
 			csapApplication.getCsapCoreService().getAlerts().getThrottle().getFrequency(),
 			CsapSimpleCache.parseTimeUnit(
 				csapApplication.getCsapCoreService().getAlerts().getThrottle().getTimeUnit(),
@@ -131,25 +124,53 @@ public class HostStatusManager  {
 			.priority( Thread.NORM_PRIORITY )
 			.build();
 
-		hostStatusRequestPool = Executors.newFixedThreadPool( numberOfThreads,
-			statusFactory );
+		hostStatusWorkers = Executors.newFixedThreadPool( numberOfThreads, statusFactory );
 
-		hostStatusThreadManager = new ExecutorCompletionService<AgentStatus>(
-			hostStatusRequestPool );
+		hostStatusService = new ExecutorCompletionService<AgentStatus>( hostStatusWorkers );
+		
+		
 		hostList = new CopyOnWriteArrayList<String>( hostsToQuery );
 
+		initialize_refresh_worker() ;
 		restartHostRefreshTimer( 3 );
 
 	}
+	
 
-	public void restartHostRefreshTimer ( int initialDelaySeconds ) {
-		refreshHostStatusHandle = scheduleGetHostStatusJobs
+	private void initialize_refresh_worker() {
+		
+		BasicThreadFactory schedFactory = new BasicThreadFactory.Builder()
+				.namingPattern( "CsapHostJobsScheduler-%d" )
+				.daemon( true )
+				.priority( Thread.NORM_PRIORITY )
+				.build();
+		
+		hostStatusScheduler = Executors.newScheduledThreadPool( 1, schedFactory );
+	}
+	
+
+	private void restartHostRefreshTimer ( int initialDelaySeconds ) {
+		hostStatusSchedulerJob = hostStatusScheduler
 			.scheduleWithFixedDelay( 
 				() -> runScheduledRefreshes(), 
 				initialDelaySeconds, 
 				csapApp.getHostRefreshIntervalSeconds(), 
 				TimeUnit.SECONDS );
 	}
+	
+	/**
+	 * For testing only
+	 *
+	 * @param testHostResponse
+	 */
+	public HostStatusManager( File testHostResponseFile ) {
+		logger.warn( "\n ************** Running in Stub Mode *************** \n" );
+		this.isTest = true;
+		this.testHostResponseFile = testHostResponseFile;
+		// initRestTemplate( 1 );
+	}
+	private boolean isTest = false;
+	private File testHostResponseFile;
 
 	/**
 	 * Kill off the spawned threads - triggered from ServiceRequests
@@ -160,29 +181,23 @@ public class HostStatusManager  {
 
 		// restFactory.shutdown();
 
-		if ( refreshHostStatusHandle != null ) {
-			scheduleGetHostStatusJobs.shutdownNow();
+		if ( hostStatusSchedulerJob != null ) {
+			hostStatusScheduler.shutdownNow();
 		}
 
-		if ( hostStatusRequestPool != null ) {
-			hostStatusRequestPool.shutdownNow();
+		if ( hostStatusWorkers != null ) {
+			hostStatusWorkers.shutdownNow();
 		}
 		csapApp.flushCacheToDisk( getAllAlerts(), this.getClass().getSimpleName() );
 	}
 
-	private CopyOnWriteArrayList<String> hostList;
-
-	// private ConcurrentSkipListMap<String, String> hostResponseMap = new
-	// ConcurrentSkipListMap<String, String>();
-	private ConcurrentSkipListMap<String, ObjectNode> hostJsonMap = new ConcurrentSkipListMap<String, ObjectNode>();
-
 	public ObjectNode getResponseFromHost ( String hostName ) {
 
-		ObjectNode hostResponse = hostJsonMap.get( hostName );
+		ObjectNode hostResponse = hostResponseMap.get( hostName );
 		if ( isTest ) {
 			try {
 				logger.warn( "Loading test data from : " + testHostResponseFile.getAbsolutePath() );
-				hostResponse = jacksonMapper.readValue( testHostResponseFile, ObjectNode.class );
+				hostResponse = jsonMapper.readValue( testHostResponseFile, ObjectNode.class );
 			} catch (Exception e) {
 				logger.error( "Failed loading test data" );
 			}
@@ -192,9 +207,8 @@ public class HostStatusManager  {
 	}
 
 	public int totalOpsQueued () {
-		// TODO Auto-generated method stub
-
-		int totalOpsQueued = hostJsonMap
+		
+		int totalOpsQueued = hostResponseMap
 			.values()
 			.stream()
 			.mapToInt( hostRuntime -> {
@@ -234,7 +248,7 @@ public class HostStatusManager  {
 			// entry2.getValue().length() );
 		};
 
-		Optional<Entry<String, ObjectNode>> hostWithLowest = hostJsonMap
+		Optional<Entry<String, ObjectNode>> hostWithLowest = hostResponseMap
 			.entrySet()
 			.stream()
 			.filter( hostEntry -> hostNames.contains( hostEntry.getKey() ) )
@@ -251,9 +265,9 @@ public class HostStatusManager  {
 
 		return hosts.stream()
 			.map( host -> {
-				ObjectNode hostRuntime = hostJsonMap.get( host );
+				ObjectNode hostRuntime = hostResponseMap.get( host );
 				// logger.info(hostRuntime.toString()) ;
-				ObjectNode hostConfiguration = jacksonMapper.createObjectNode();
+				ObjectNode hostConfiguration = jsonMapper.createObjectNode();
 				hostConfiguration.put( "collectedHost", host );
 				if ( hostRuntime == null ||
 						(hostRuntime != null && hostRuntime.has( "error" )) ) {
@@ -274,9 +288,9 @@ public class HostStatusManager  {
 
 		return hosts.stream()
 			.map( host -> {
-				ObjectNode hostRuntime = hostJsonMap.get( host );
+				ObjectNode hostRuntime = hostResponseMap.get( host );
 				// logger.info(hostRuntime.toString()) ;
-				ObjectNode hostFilteredRuntime = jacksonMapper.createObjectNode();
+				ObjectNode hostFilteredRuntime = jsonMapper.createObjectNode();
 				hostFilteredRuntime.put( "collectedHost", host );
 				if ( hostRuntime == null ||
 						(hostRuntime != null && hostRuntime.has( "error" )) ) {
@@ -287,14 +301,14 @@ public class HostStatusManager  {
 					if ( serviceFilter == null ) {
 						hostFilteredRuntime.set( "services", servicesCollected );
 					} else {
-						ObjectNode servicesFiltered = jacksonMapper.createObjectNode();
+						ObjectNode servicesFiltered = jsonMapper.createObjectNode();
 						hostFilteredRuntime.set( "services", servicesFiltered );
 						servicesCollected.fieldNames().forEachRemaining( servicePortName -> {
 							if ( servicePortName.matches( serviceFilter ) ) {
 								if ( attributeName == null ) {
 									servicesFiltered.set( servicePortName, servicesCollected.get( servicePortName ) );
 								} else {
-									ObjectNode attributeFiltered = jacksonMapper.createObjectNode();
+									ObjectNode attributeFiltered = jsonMapper.createObjectNode();
 									JsonNode allAttributes = servicesCollected.get( servicePortName );
 									if ( allAttributes.has( attributeName ) ) {
 										attributeFiltered.set( attributeName, allAttributes.get( attributeName ) );
@@ -316,9 +330,9 @@ public class HostStatusManager  {
 
 		return hosts.stream()
 			.map( host -> {
-				ObjectNode hostRuntime = hostJsonMap.get( host );
+				ObjectNode hostRuntime = hostResponseMap.get( host );
 				// logger.info(hostRuntime.toString()) ;
-				ObjectNode hostConfiguration = jacksonMapper.createObjectNode();
+				ObjectNode hostConfiguration = jsonMapper.createObjectNode();
 				hostConfiguration.put( "collectedHost", host );
 				if ( hostRuntime == null ||
 						(hostRuntime != null && hostRuntime.has( "error" )) ) {
@@ -342,9 +356,9 @@ public class HostStatusManager  {
 
 		return hosts.stream()
 			.map( host -> {
-				ObjectNode hostRuntime = hostJsonMap.get( host );
+				ObjectNode hostRuntime = hostResponseMap.get( host );
 				if ( hostRuntime == null ) {
-					hostRuntime = jacksonMapper.createObjectNode();
+					hostRuntime = jsonMapper.createObjectNode();
 					hostRuntime.put( "error", "No response found" );
 				}
 				hostRuntime.put( "collectedHost", host );
@@ -355,27 +369,11 @@ public class HostStatusManager  {
 				hostStatus -> hostStatus ) );
 	}
 
-	// public ObjectNode hostsRuntime() {
-	// List<ObjectNode> hostJsons = hosts.stream()
-	// .map( host -> getHostAsJson( host ) )
-	// .filter( java.util.Objects::nonNull )
-	// .filter( hostJson -> hostJson.has( HostKeys.lastCollected.jsonId ) )
-	// .filter( hostJson -> !hostJson.get( HostKeys.lastCollected.jsonId ).has(
-	// "warning" ) )
-	// .map( hostJson -> (ObjectNode) hostJson.get(
-	// HostKeys.lastCollected.jsonId ) )
-	// .collect( Collectors.toList() );
-	//
-	// return last ;
-	// }
 
 	/**
-	 * realTime meters csapApp.getCurrentLifecycleMetaData().getRealTimeMeters()
-	 *
-	 * * if detailMeters == null , then all details will be used.
-	 *
-	 * @param attribute
-	 * @return
+	 * 
+	 * real time meters appear on application landing page
+	 * 
 	 */
 	public void updateRealTimeMeters ( ArrayNode realTimeMeters, List<String> hosts, List<String> detailMeters ) {
 
@@ -528,16 +526,16 @@ public class HostStatusManager  {
 		if ( isTest ) {
 			try {
 				logger.warn( "Loading test data from : " + testHostResponseFile.getAbsolutePath() );
-				return (ObjectNode) jacksonMapper.readTree( testHostResponseFile );
+				return (ObjectNode) jsonMapper.readTree( testHostResponseFile );
 			} catch (Exception e) {
 				logger.error( "Failed loading test data" );
 			}
 		}
 
-		if ( hostJsonMap.containsKey( hostName ) ) {
+		if ( hostResponseMap.containsKey( hostName ) ) {
 
 			try {
-				ObjectNode hostStatus = hostJsonMap.get( hostName );
+				ObjectNode hostStatus = hostResponseMap.get( hostName );
 
 				if ( hostStatus.has( "error" ) ) {
 					return null;
@@ -555,10 +553,10 @@ public class HostStatusManager  {
 
 	public ObjectNode getServiceRuntime ( String hostName, String serviceName_port ) {
 
-		if ( hostJsonMap.containsKey( hostName ) ) {
+		if ( hostResponseMap.containsKey( hostName ) ) {
 
 			try {
-				ObjectNode hostRuntime = hostJsonMap.get( hostName );
+				ObjectNode hostRuntime = hostResponseMap.get( hostName );
 
 				if ( hostRuntime.has( "error" ) ) {
 					return null;
@@ -584,21 +582,20 @@ public class HostStatusManager  {
 
 	}
 
-	ExecutorService hostStatusRequestPool;
-	ExecutorCompletionService<AgentStatus> hostStatusThreadManager;
+
 
 	public void runScheduledRefreshes () {
 
 		logger.debug( "Checking for hosts to Query" );
 		try {
-			update_hosts_runtime_lock.lock();
+			host_queries_in_progress_lock.lock();
 			executeQueriesInParallel( null );
 		} catch (Throwable t) {
 			logger.warn( "Failed quering host: {}", CSAP.getCsapFilteredStackTrace( t ) );
 		} finally {
 
 			try {
-				update_hosts_runtime_lock.unlock();
+				host_queries_in_progress_lock.unlock();
 			} catch (Exception e) {
 				logger.warn( "Failed to release lock: " + e.getMessage() );
 			}
@@ -715,7 +712,6 @@ public class HostStatusManager  {
 
 	}
 
-	private ReentrantLock update_hosts_runtime_lock = new ReentrantLock();
 
 	/**
 	 * Invoked in response to UI by a user. If a full refresh is issued, restart
@@ -730,15 +726,15 @@ public class HostStatusManager  {
 
 		boolean gotLock = false;
 		try {
-			gotLock = update_hosts_runtime_lock.tryLock( 5, TimeUnit.SECONDS );
+			gotLock = host_queries_in_progress_lock.tryLock( 5, TimeUnit.SECONDS );
 			if ( gotLock ) {
 				List<String> hostToUpdate;
 				if ( hosts == null ) {
 					hostToUpdate = hostList;
 
 					logger.debug( "Cancelling scheduler" );
-					if ( refreshHostStatusHandle != null && !refreshHostStatusHandle.isDone() ) {
-						refreshHostStatusHandle.cancel( true );
+					if ( hostStatusSchedulerJob != null && !hostStatusSchedulerJob.isDone() ) {
+						hostStatusSchedulerJob.cancel( true );
 					}
 				} else {
 					hostToUpdate = hosts;
@@ -763,14 +759,14 @@ public class HostStatusManager  {
 					if ( !isTest )
 						restartHostRefreshTimer( csapApp.getHostRefreshIntervalSeconds() );
 				}
-				update_hosts_runtime_lock.unlock();
+				host_queries_in_progress_lock.unlock();
 			}
 		}
 	}
 
 	private void executeQueriesInParallel ( List<String> hostToUpdate ) {
 
-		logger.debug( "Lock Requests: {}", update_hosts_runtime_lock.getQueueLength() );
+		logger.debug( "Lock Requests: {}", host_queries_in_progress_lock.getQueueLength() );
 
 		if ( isTest ) {
 			logger.warn( "Running in test mode, status will be loaded from disk {}", hostToUpdate );
@@ -784,23 +780,28 @@ public class HostStatusManager  {
 
 			List<Future<AgentStatus>> futureResultsList = new ArrayList<>();
 			for ( String host : hostList ) {
-				Future<AgentStatus> futureResult = hostStatusThreadManager.submit( new AgentStatusCallable( host, false ) );
+				Future<AgentStatus> futureResult = hostStatusService.submit( new AgentStatusCallable( host, false ) );
 				futureResultsList.add( futureResult );
 			}
 			for ( int i = 0; i < futureResultsList.size(); i++ ) {
 				try {
-					Future<AgentStatus> finishedJob = hostStatusThreadManager
-						.take();
+					Future<AgentStatus> agentStatusJob = hostStatusService.take();
+					
 					// Future<QueryResult> finishedJob = hostStatusThreadManager
 					// .poll(10, TimeUnit.SECONDS);
 
-					if ( finishedJob != null ) {
+					if ( agentStatusJob != null ) {
+						AgentStatus agentStatus = agentStatusJob.get() ;
 
-						ObjectNode hostObject = (ObjectNode) jacksonMapper.readTree( finishedJob.get().getHostRuntimeJson() );
-						hostJsonMap.put(
-							finishedJob.get().getHost(), hostObject );
+						ObjectNode hostObject = (ObjectNode) jsonMapper.readTree( agentStatus.getHostRuntimeJson() );
+						hostResponseMap.put(
+							agentStatus.getHost(), 
+							hostObject );
 
-						checkForUpdatedHealthReport( finishedJob.get().getHost(), hostObject );
+						if ( hostObject.has( HostKeys.services.jsonId ) ) {
+							updateServiceHealth( agentStatus.getHost(), hostObject );
+						}
+						
 					} else {
 						logger.error( "Got a Null result" );
 						break;
@@ -827,10 +828,9 @@ public class HostStatusManager  {
 	}
 
 	public ArrayNode getAllAlerts () {
-		ArrayNode all = jacksonMapper.createArrayNode();
+		ArrayNode all = jsonMapper.createArrayNode();
 		all.addAll( getAlertHistory() );
 		all.addAll( getAlertsThrottled() );
-
 		return all;
 	}
 
@@ -838,82 +838,31 @@ public class HostStatusManager  {
 		return alertHistory;
 	}
 
-	private ArrayNode alertHistory = jacksonMapper.createArrayNode();
-	private ArrayNode alertsThrottled = jacksonMapper.createArrayNode();
+	private synchronized void updateServiceHealth ( String hostName, ObjectNode hostStatus ) {
 
-	private CsapSimpleCache throttleTimer;
+		ObjectNode services = (ObjectNode) hostStatus.get( HostKeys.services.jsonId );
 
-	private ConcurrentSkipListMap<String, String> hostServiceReportTimes = new ConcurrentSkipListMap<String, String>();
+		ServiceBaseParser.getJsonAttributeStream( services )
 
-	synchronized void checkForUpdatedHealthReport ( String hostName, ObjectNode hostStatus ) {
+			.map( serviceName -> services.get( serviceName ) )
 
-		if ( hostStatus.has( HostKeys.services.jsonId ) ) {
+			.filter( serviceStatus -> serviceStatus.has( HostKeys.healthReportCollected.jsonId ) )
+			.filter(
+				serviceStatus -> {
 
-			ObjectNode services = (ObjectNode) hostStatus.get( HostKeys.services.jsonId );
+					// return true only if healthReport is present and
+					// contains failed items
+					JsonNode healthReport = serviceStatus.get( HostKeys.healthReportCollected.jsonId );
 
-			ServiceBaseParser.getJsonAttributeStream( services )
-
-				.map( serviceName -> services.get( serviceName ) )
-
-				.filter( serviceStatus -> serviceStatus.has( HostKeys.healthReportCollected.jsonId ) )
-				.filter(
-					serviceStatus -> {
-
-						// return true only if healthReport is present and
-						// contains failed items
-						JsonNode healthReport = serviceStatus.get( HostKeys.healthReportCollected.jsonId );
-
-						if ( healthReport.has( Report.healthy.json ) ) {
-							return !healthReport.get( Report.healthy.json ).asBoolean();
-						}
-						return false;
-					} )
-
-				.forEach( serviceWithFailedReport -> {
-					try {
-						ServiceInstance runtimeInstance = jacksonMapper.readValue( serviceWithFailedReport.traverse(),
-							ServiceInstance.class );
-						runtimeInstance.setHostName( hostName );
-
-						String lastUpdatedTime = runtimeInstance.getHealthReportCollected().get( Report.lastCollected.json ).asText();
-
-						String lastUpdatedKey = hostName + runtimeInstance.getServiceName_Port();
-
-						logger.debug( "lastUpdatedKey: {}, lastUpdatedTime: {}", lastUpdatedKey, lastUpdatedTime );
-
-						if ( hostServiceReportTimes.containsKey( lastUpdatedKey ) &&
-								hostServiceReportTimes.get( lastUpdatedKey ).equals( lastUpdatedTime ) ) {
-
-							logger.debug( "skipping as items already added: {},\n {}",
-								runtimeInstance.getServiceName(),
-								runtimeInstance.getHealthReportCollected() );
-						} else {
-
-							logger.debug( "Adding health alerts for {},\n {}",
-								runtimeInstance.getServiceName(),
-								runtimeInstance.getHealthReportCollected() );
-
-							hostServiceReportTimes.put( lastUpdatedKey, lastUpdatedTime );
-
-							String healthUrl = "notFound";
-							try {
-								ServiceInstance serviceInstance = csapApp.getServiceInstanceAnyPackage(
-									runtimeInstance.getServiceName_Port(), runtimeInstance.getHostName() );
-								healthUrl = serviceInstance.getUrl() + "/csap/health";
-							} catch (Exception e) {
-								logger.error( "Did not find service: {}",
-									runtimeInstance.getServiceName_Port(),
-									CSAP.getCsapFilteredStackTrace( e ) );
-							}
-
-							addUpdatedServiceAlerts( runtimeInstance, lastUpdatedTime, healthUrl );
-						}
-
-					} catch (Exception e) {
-						logger.warn( "Ignoring exception: " + e.getClass().getName(), e );
+					if ( healthReport.has( Report.healthy.json ) ) {
+						return !healthReport.get( Report.healthy.json ).asBoolean();
 					}
-				} );
-		}
+					return false;
+				} )
+
+			.forEach( serviceWithFailedReport -> {
+				processReportFailures( hostName, serviceWithFailedReport );
+			} );
 
 		logger.debug( "history size: {} throttle size: {} ", getAlertHistory().size(), getAlertsThrottled().size() );
 
@@ -931,6 +880,52 @@ public class HostStatusManager  {
 
 	}
 
+
+	private void processReportFailures ( String hostName, JsonNode serviceWithFailedReport ) {
+		try {
+			ServiceInstance runtimeInstance = jsonMapper.readValue( serviceWithFailedReport.traverse(),
+				ServiceInstance.class );
+			runtimeInstance.setHostName( hostName );
+
+			String lastUpdatedTime = runtimeInstance.getHealthReportCollected().get( Report.lastCollected.json ).asText();
+
+			String lastUpdatedKey = hostName + runtimeInstance.getServiceName_Port();
+
+			logger.debug( "lastUpdatedKey: {}, lastUpdatedTime: {}", lastUpdatedKey, lastUpdatedTime );
+
+			if ( lastCollectedServiceHeathReportTimes.containsKey( lastUpdatedKey ) &&
+					lastCollectedServiceHeathReportTimes.get( lastUpdatedKey ).equals( lastUpdatedTime ) ) {
+
+				logger.debug( "skipping as items already added: {},\n {}",
+					runtimeInstance.getServiceName(),
+					runtimeInstance.getHealthReportCollected() );
+			} else {
+
+				logger.debug( "Adding health alerts for {},\n {}",
+					runtimeInstance.getServiceName(),
+					runtimeInstance.getHealthReportCollected() );
+
+				lastCollectedServiceHeathReportTimes.put( lastUpdatedKey, lastUpdatedTime );
+
+				String healthUrl = "notFound";
+				try {
+					ServiceInstance serviceInstance = csapApp.getServiceInstanceAnyPackage(
+						runtimeInstance.getServiceName_Port(), runtimeInstance.getHostName() );
+					healthUrl = serviceInstance.getUrl() + "/csap/health";
+				} catch (Exception e) {
+					logger.error( "Did not find service: {}",
+						runtimeInstance.getServiceName_Port(),
+						CSAP.getCsapFilteredStackTrace( e ) );
+				}
+
+				addUpdatedServiceAlerts( runtimeInstance, lastUpdatedTime, healthUrl );
+			}
+
+		} catch (Exception e) {
+			logger.warn( "Ignoring exception: " + e.getClass().getName(), e );
+		}
+	}
+
 	// {"collectionCount":61,"lastCollected":"13:31:51 , Jan
 	// 6","isHealthy":false,
 	// "undefined":[],"pendingFirstInterval":[],"limitsExceeded":[{"id":"health.exceptions"
@@ -944,7 +939,7 @@ public class HostStatusManager  {
 		ObjectNode healthReport = runtimeInstance.getHealthReportCollected();
 
 		// increment counters and dates - or add
-		ArrayList<ObjectNode> activeAlerts = jacksonMapper.readValue(
+		ArrayList<ObjectNode> activeAlerts = jsonMapper.readValue(
 			healthReport.get( Report.limitsExceeded.json ).traverse(),
 			new TypeReference<ArrayList<ObjectNode>>() {
 			} );
@@ -990,28 +985,20 @@ public class HostStatusManager  {
 
 		} );
 
-		if ( getThrottleTimer().isExpired() ) {
+		if ( getAlertsThrottleTimer().isExpired() ) {
 			// Always add in memory browsing
 			getAlertHistory().addAll( getAlertsThrottled() );
-			getThrottleTimer().reset();
+			getAlertsThrottleTimer().reset();
 			getAlertsThrottled().removeAll();
 		}
 	}
 
-	public ArrayNode getAlertsThrottled () {
+	private ArrayNode getAlertsThrottled () {
 		return alertsThrottled;
 	}
 
-	public void setAlertsThrottled ( ArrayNode alertsThrottled ) {
-		this.alertsThrottled = alertsThrottled;
-	}
-
-	public CsapSimpleCache getThrottleTimer () {
-		return throttleTimer;
-	}
-
-	public void setThrottleTimer ( CsapSimpleCache throttleTimer ) {
-		this.throttleTimer = throttleTimer;
+	private CsapSimpleCache getAlertsThrottleTimer () {
+		return alertThrottleTimer;
 	}
 
 }

@@ -1,53 +1,103 @@
 
 #
-# spring boot provides many options to externalize configuration.
-# one option for desktop - copy this file to your home directory, update, and add
-# --spring.config.location=file:c:/Users/yourHomeDir/ 
+# Common test
+#
+csap.info.load-balancer-url: "http://csap-secure.yourcompany.com"
+
+#
+# csap tester
+#
+
+#my-service-configuration.db:
+#    #driver-class-name: org.javasimon.jdbc4.Driver
+#    driver-class-name: oracle.jdbc.driver.OracleDriver
+#    username: csap_test
+#    password: csap_test
+#    max-active: 50
+#    max-idle: 50
+#    idle-eviction-ms: 10000
+#    url: "jdbc:oracle:thin:@csapdb-dev01.yourcompany.com:1521:dev01"
+#    url: jdbc:simon:oracle:oci8:@local_factory;SIMON_REAL_DRV=oracle.jdbc.driver.OracleDriver;SIMON_PREFIX=oracle.jdbc
 
 
-#spring.mail.host: "${mailServer:outbound.yourCompany.com}"
-#spring.mail.port: "${mailPort:25}"
+
+#
+#  csap-event-data
+#
+
+
+# csap-dev01 csap-dev02 or csap-prd01 csap-prd02
+#my-service-configuration.mongo-config:
+#    hosts: "csap-dev01"
+#    password: "password"
     
-#csap-agent.host-url-pattern: "${hostUrlPattern:http://CSAP_HOST.yourCompany.com:8011/CsAgent}"
+#
+#  csap-event-analytics
+#   
+#my-service-configuration.event-config: 
+#    user: "eventUser"  # csapeng.gen
+#    pass: "eventPass" #
+   
+    
 
-#my-service-configuration.docker.url: "tcp://localhost.yourCompany.com:4243" #"tcp://host.yourCompany.com:4243", tcp://localhost:2375, 
-#my-service-configuration.docker.template-repository: "docker.io"
+#Mail
+#spring.mail.host: "outbound.yourcompany.com"
+#spring.mail.port: "25"
 
 
-csap.info.load-balancer-url: "${csapLbUrl:https://csap-secure.yourCompany.com}"
+
+#
+# csap-core
+#    
+ 
+#my-service-configuration.definition-folder: "${csapTest}/aws-definition" # maintained in private git
+#csap.security: 
+#    enabled: true
+#    ldap-enabled: true
+#    rest-api-filter:
+#      enabled: true
+    
+#csap-agent.host-url-pattern: "http://CSAP_HOST.yourcompany.com:8011/CsAgent"
+#
+#my-service-configuration.docker.url: "tcp://localhost:2375" #"tcp://csap-dev04.yourcompany.com:4243", tcp://localhost:2375, 
+#my-service-configuration.docker.template-repository: "containers.yourcompany.com/"
 
 
 test.variables:
     
-    # git integration tests
-    scm-userid: "changeme"
-    scm-pass: "changeme"
-    private-repository: "changeme" 
-    private-file-validate: "changeme"
+    #source-control-tests
+    scm-userid: "pnightin"
+    scm-pass: "changeme" #changeme will skip tests
+    private-repository: "https://bitbucket-eng-sjc1.yourcompany.com/bitbucket/scm/csap/yourcompany-csap.git" 
+    private-file-validate: "/yourcompanyServices/testFileForGitJunits.txt"
     
-    # integration tests: definition
-    test-external-application: "changeme"
-    test-mongo-collection: "changeme"
+    #
+    test-external-application: "../../yourcompany-csap/yourcompanyServices/csapDevelopment/csapComplicated/Application.json"
+    test-mongo-collection: "../../yourcompany-csap/yourcompanyServices/csapDevelopment/application-mongo.json"
+
+    #for admin testing
+    test-admin-host1: "csap-dev01"
+    test-admin-host2: "csap-dev02"
+    test-db-host: "csapdb-dev01"
+    csapUser1: "restUser"
+    csapPass1: "restPass"
     
-    # integration tests: collection
-    test-admin-host1: "changeme"
-    test-admin-host2: "changeme"
-    test-db-host: "changeme"
-    csapUser1: "changeme"
-    csapPass1: "changeme"
+    # analytics server
+    testAppId: "csapeng.gen"
     
-    # integration tests: CsapEvents
-    user: "changeme"
-    pass: "changeme"
+    #user: "csaprest.gen"
+    user: "eventUser"
+    pass: "eventPass"
     eventUrl: "https://csap-secure.yourcompany.com/data/api/event"
     eventApiUrl: "https://csap-secure.yourcompany.com/data/eventApi"
     eventMetricsUrl: "https://csap-secure.yourcompany.com/analytics/api/metrics/"
     analyticsUiUrl: "https://csap-secure.yourcompany.com/admin/os/performance"
     historyUiUrl: "https://csap-secure.yourcompany.com/data?appId={appId}&life={life}&category={category}&"
     
+    #nagios integration tests
+    nagios-url: "http://nagios.yourcompany.com/nrdp/"
+    nagios-token: "yourToken"
+    nagios-user: "yourUser"
+    nagios-pass: "yourPass"
     
-    # integration tests: nagios
-    nagios-url: "changeme"
-    nagios-token: "changeme"
-    nagios-user: "changeme"
-    nagios-pass: "changeme"
+ 

@@ -6,9 +6,8 @@
 	},
 	"capability": {
 		"name": "Your company name",
-		"ajpSecret": "csapDemoAjp",
-		
-		"scm": " https://pathToGitRepo/definition.git",
+		"ajpSecret": "csapDemoAjp",		
+		"scm": "https://github.com/peterdnight/csap-aws-definition",
 		"scmType": "git",
 		"scmBranch": "master",
 		"repoUrl": "http://repo.spring.io/libs-release",
@@ -699,7 +698,7 @@
 				"1": {}
 			},
 			"metaData": "webServerIntegration",
-			"parameters": "-DcsapJava8  -Xms128M -Xmx133M -XX:MaxMetaspaceSize=96M -XX:+ExitOnOutOfMemoryError",
+			"parameters": "-DcsapJava8  -Dspring.profiles.active=CSAP_LIFE,desktop -Xms128M -Xmx133M -XX:MaxMetaspaceSize=96M -XX:+ExitOnOutOfMemoryError",
 			"environmentVariables": {
 				"csapExternalPropertyFolder": "$STAGING/conf/propertyOverride/shared"
 			},

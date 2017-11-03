@@ -555,6 +555,7 @@ public class Application {
 	// Use in templates!!! search strings
 	public String getAgentUrl ( String host, String target, boolean checkForInternalOverride ) {
 
+
 		if ( host.equals( "$host" ) ) {
 			host = Application.getHOST_NAME();
 		}

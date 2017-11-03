@@ -1,8 +1,8 @@
 
 # CSAP agent sets based on lifecycle
 # csapDefaultConfiguration add for testing default config on desktop
-#spring.profiles.active: desktop,admin,company
-spring.profiles.active: desktop,agent,company
+spring.profiles.active: desktop,admin,company
+#spring.profiles.active: desktop,agent,company
 
 ---
 #
